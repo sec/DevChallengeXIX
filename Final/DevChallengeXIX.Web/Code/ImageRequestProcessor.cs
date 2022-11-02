@@ -13,13 +13,13 @@ public class ImageRequestProcessor
     static IResult ErrorImage(string details) => ErrorReponse("Unable to load image.", details);
     static IResult ErrorUnknown(string details) => ErrorReponse("Unexpected error.", details);
 
-    public IResult ProcessImage(int minLevel, string image, int Width = 0, int Height = 0)
+    public async Task<IResult> ProcessImage(int minLevel, string image, int Width = 0, int Height = 0)
     {
         byte[] bytes;
         int cellWidth = Width;
         int cellHeight = Height;
         Image<Rgb24>? map = null;
-        List<ImageMineResponse> result = new();
+        List<Task<ImageMineResponse>> tasks = new();
 
         try
         {
@@ -46,42 +46,63 @@ public class ImageRequestProcessor
             #region Find width of cell
             if (cellWidth <= 0)
             {
-                for (int i = 0; i < map.Width; i++)
+                map.ProcessPixelRows(a =>
                 {
-                    var isWhite = map[i, 1].IsWhite();
-                    if (i == 0 && !isWhite)
+                    for (var x = 1; x < map.Width; x++)
                     {
-                        return ErrorWidth();
+                        bool isBorder = true;
+                        for (int y = 0; y < a.Height; y++)
+                        {
+                            var row = a.GetRowSpan(y);
+                            if (!row[x].IsWhite())
+                            {
+                                isBorder = false;
+                                break;
+                            }
+                        }
+
+                        if (isBorder)
+                        {
+                            cellWidth = x - 1;
+                            break;
+                        }
                     }
-                    else if (i > 0 && isWhite)
-                    {
-                        cellWidth = i - 1;
-                        break;
-                    }
-                }
+                });
+
                 if (cellWidth <= 0)
                 {
                     return ErrorWidth();
                 }
             }
+
             #endregion
 
             #region Find height of cell
             if (cellHeight <= 0)
             {
-                for (int i = 0; i < map.Height; i++)
+                map.ProcessPixelRows(a =>
                 {
-                    var isWhite = map[i, 1].IsWhite();
-                    if (i == 0 && !isWhite)
+                    for (var y = 1; y < a.Height; y++)
                     {
-                        return ErrorHeight();
+                        bool isBorder = true;
+                        var row = a.GetRowSpan(y);
+                        for (var x = 0; x < a.Width; x++)
+                        {
+                            if (!row[x].IsWhite())
+                            {
+                                isBorder = false;
+                                break;
+                            }
+                        }
+
+                        if (isBorder)
+                        {
+                            cellHeight = y - 1;
+                            break;
+                        }
                     }
-                    else if (i > 0 && isWhite)
-                    {
-                        cellHeight = i - 1;
-                        break;
-                    }
-                }
+                });
+
                 if (cellHeight <= 0)
                 {
                     return ErrorHeight();
@@ -110,35 +131,18 @@ public class ImageRequestProcessor
                     var slice = new Rectangle(x, y, width, height);
 
                     // cut small piece
-                    using var small = Extract(map, slice);
+                    var small = Extract(map, slice);
+                    var cx = cellX;
+                    var cy = cellY;
 
-                    // this could be done using tasks on multi-core cpu, but when heavy load, we can process multiple big images, so let's use single cpu per image
-                    small.ProcessPixelRows(accessor =>
-                    {
-                        var dark = new List<int>();
-
-                        for (int y = 0; y < accessor.Height; y++)
-                        {
-                            var row = accessor.GetRowSpan(y);
-
-                            for (int x = 0; x < row.Length; x++)
-                            {
-                                dark.Add(row[x].CalcDarkness());
-                            }
-                        }
-
-                        var avg = (int) dark.Average();
-
-                        if (avg >= minLevel)
-                        {
-                            result.Add(new ImageMineResponse(cellX, cellY, avg));
-                        }
-                    });
+                    tasks.Add(Task.Run(() => Process(small, cx, cy)));
                 }
             }
             #endregion
 
-            return Results.Ok(new ImageRequestResponse(result));
+            await Task.WhenAll(tasks);
+
+            return Results.Ok(new ImageRequestResponse(tasks.Where(x => x.Result.Level >= minLevel).Select(x => x.Result)));
         }
         catch (Exception ex)
         {
@@ -148,6 +152,27 @@ public class ImageRequestProcessor
         {
             map?.Dispose();
         }
+    }
+
+    private static ImageMineResponse Process(Image<Rgb24> image, int cellX, int cellY)
+    {
+        var dark = new List<int>();
+        image.ProcessPixelRows(accessor =>
+        {
+            for (int y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+
+                for (int x = 0; x < row.Length; x++)
+                {
+                    dark.Add(row[x].CalcDarkness());
+                }
+            }
+        });
+
+        image.Dispose();
+
+        return new ImageMineResponse(cellX, cellY, (int) dark.Average());
     }
 
     private static Image<Rgb24> Extract(Image<Rgb24> sourceImage, Rectangle sourceArea)

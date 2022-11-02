@@ -20,10 +20,11 @@ public class Program
         app.UseSwaggerUI();
 
         app.MapPost(ImageInputEndpoint, PostImage);
+        app.MapGet("/healthcheck", () => "OK");
         app.Run();
     }
 
     [ProducesResponseType(typeof(ImageRequestResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ImageErrorReposne), StatusCodes.Status422UnprocessableEntity)]
-    static IResult PostImage(ImageRequest r, ImageRequestProcessor p) => p.ProcessImage(r.Min_level, r.Image, r.CellWidth, r.CellHeight);
+    static Task<IResult> PostImage(ImageRequest r, ImageRequestProcessor p) => p.ProcessImage(r.Min_level, r.Image, r.CellWidth, r.CellHeight);
 }

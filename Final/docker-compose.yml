@@ -3,4 +3,24 @@ services:
   web:
     build: ./DevChallengeXIX.Web/
     ports:
-      - "8080:80"      
+      - "8080:80"  
+    healthcheck:
+      test: curl --fail http://localhost/healthcheck || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 1s      
+
+  siege:
+    image: yokogawa/siege
+    profiles:
+      - testing
+    command: --concurrent=800 --time=60S --internet --file /urls.txt -T application/json
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - ./siege/urls.txt:/urls.txt
+      - ./siege/log:/var/log
+    environment:
+      - API_HOST=http://web:80
