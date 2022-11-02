@@ -29,6 +29,7 @@ public class ImageRequestTests : IClassFixture<WebApplicationFactory<Program>>
     [InlineData(0, ImageSamples.SingleBlack10by10, 0, 0, 1)]
     [InlineData(0, ImageSamples.SingleWhite10by10, 0, 0, 1)]
     [InlineData(1, ImageSamples.BigAllBlack, 9, 9, 100, 1000, 1000)]
+    [InlineData(1, ImageSamples.Black15by5, 0, 0, 1)]
     public async void ImageRequest_Should_Process_Images_Correctly(int minLevel, string image, int expectedMaxX, int expectedMaxY, int expectedMines, int gridX = 0, int gridY = 0)
     {
         var request = new ImageRequest(minLevel, image, gridX, gridY);
